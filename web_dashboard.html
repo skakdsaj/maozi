@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>安全帽监控平台</title>
+    <!-- 引入 MQTT 客户端库 -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -80,7 +82,7 @@
         </div>
 
         <div style="margin-bottom: 10px; color: #475569; font-size: 13px;">
-            数据状态：<span id="dataStatus" style="font-weight:600;">正在获取...</span>
+            数据状态：<span id="dataStatus" style="font-weight:600;">正在连接...</span>
         </div>
 
         <div id="configPanel">
@@ -169,8 +171,12 @@
         const geocodeCache = new Map();
         let currentStatus = 'normal';
         let missingTools = [];
-        let updateInterval = null;
+        let mqttClient = null;
+        let reconnectTimer = null;
 
+        // ================================================================
+        // 配置管理
+        // ================================================================
         function getConfig() {
             return {
                 productId: document.getElementById('configProductId').value.trim(),
@@ -180,75 +186,117 @@
         }
 
         function applyConfig() {
-            clearInterval(updateInterval);
-            fetchData();
-            updateInterval = setInterval(fetchData, 3000);
-            document.getElementById('dataStatus').textContent = '配置已更新，正在获取...';
+            if (mqttClient) {
+                mqttClient.end(true);
+                mqttClient = null;
+            }
+            clearTimeout(reconnectTimer);
+            connectMQTT();
         }
 
         // ================================================================
-        // 数据拉取（使用 api-key 头部）
+        // MQTT over WebSocket 连接
         // ================================================================
-        async function fetchData() {
+        function connectMQTT() {
             const cfg = getConfig();
-            const url = `https://iot-api.heclouds.com/thingmodel/query-device-property?product_id=${encodeURIComponent(cfg.productId)}&device_name=${encodeURIComponent(cfg.deviceName)}`;
+            // OneNET MQTT over WebSocket 地址（非加密）
+            const brokerUrl = 'wss://open.iot.10086.cn:8084/mqtt';
+            const clientId = 'web_' + Math.random().toString(16).substr(2, 8);
+            const password = 'version=2018-10-31&res=products%2FU1eOLJ83ky%2Fdevices%2FMAOZI&et=1910271117&method=md5&sign=phdFtaa1pHniN4HlxBQwVw%3D%3D';
 
-            try {
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'api-key': cfg.apiKey   // ← 关键改动：使用 api-key
+            document.getElementById('dataStatus').textContent = '正在连接 MQTT...';
+
+            mqttClient = mqtt.connect(brokerUrl, {
+                clientId: clientId,
+                username: cfg.productId,
+                password: password,
+                reconnectPeriod: 5000,
+                connectTimeout: 10000,
+                keepalive: 60,
+                clean: true
+            });
+
+            mqttClient.on('connect', () => {
+                document.getElementById('dataStatus').textContent = 'MQTT 已连接，等待数据...';
+                console.log('MQTT connected');
+                // 订阅设备属性上报主题
+                const topic = `$sys/${cfg.productId}/${cfg.deviceName}/thing/property/post`;
+                mqttClient.subscribe(topic, { qos: 1 }, (err) => {
+                    if (err) {
+                        console.error('订阅失败:', err);
+                        document.getElementById('dataStatus').textContent = '订阅失败';
+                    } else {
+                        console.log('订阅成功:', topic);
                     }
                 });
+            });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+            mqttClient.on('message', (topic, message) => {
+                try {
+                    const payload = message.toString();
+                    console.log('收到 MQTT 消息:', topic, payload);
+                    const data = JSON.parse(payload);
+                    if (data && data.params) {
+                        updateFromMqtt(data.params);
+                    }
+                    document.getElementById('lastPayload').textContent = '最近数据: ' + payload;
+                } catch (e) {
+                    console.error('解析 MQTT 消息失败:', e);
                 }
+            });
 
-                const result = await response.json();
-                console.log('API响应:', result);
+            mqttClient.on('error', (err) => {
+                console.error('MQTT 错误:', err);
+                document.getElementById('dataStatus').textContent = 'MQTT 错误: ' + err.message;
+            });
 
-                if (result.code === 0 && result.data && result.data.properties) {
-                    const dataMap = {};
-                    result.data.properties.forEach(prop => {
-                        dataMap[prop.id] = prop.value;
-                    });
+            mqttClient.on('reconnect', () => {
+                document.getElementById('dataStatus').textContent = 'MQTT 重连中...';
+            });
 
-                    const sensorData = {
-                        lat: 0, lon: 0,
-                        temp: dataMap.wendu || '--',
-                        weather: '',
-                        city: '未知',
-                        baojing: dataMap.baojing === true || dataMap.baojing === 'true',
-                        toudeng: dataMap.toudeng === true || dataMap.toudeng === 'true',
-                        tools: [
-                            dataMap.banshou === true || dataMap.banshou === 'true',
-                            dataMap.neiliujiao === true || dataMap.neiliujiao === 'true',
-                            dataMap.cedianbi === true || dataMap.cedianbi === 'true',
-                            dataMap.chizi === true || dataMap.chizi === 'true',
-                            dataMap.luosidao1 === true || dataMap.luosidao1 === 'true',
-                            dataMap.luosidao10 === true || dataMap.luosidao10 === 'true',
-                            dataMap.jiaodai === true || dataMap.jiaodai === 'true',
-                            dataMap.chuizi === true || dataMap.chuizi === 'true'
-                        ]
-                    };
-
-                    updateUI(sensorData);
-                    document.getElementById('dataStatus').textContent = '已连接（HTTP）';
-                    document.getElementById('lastPayload').textContent = '最近数据: ' + JSON.stringify(sensorData);
-                } else {
-                    document.getElementById('dataStatus').textContent = '获取失败: ' + (result.msg || '未知错误');
-                    console.warn('API返回:', result);
-                }
-            } catch (error) {
-                console.error('获取数据失败:', error);
-                document.getElementById('dataStatus').textContent = '获取失败，重试中...';
-            }
+            mqttClient.on('offline', () => {
+                document.getElementById('dataStatus').textContent = 'MQTT 离线，等待重连...';
+            });
         }
 
         // ================================================================
-        // UI 更新（保持不变）
+        // 从 MQTT 数据更新 UI
+        // ================================================================
+        function updateFromMqtt(params) {
+            const dataMap = {};
+            for (const key in params) {
+                if (params[key] && typeof params[key] === 'object' && 'value' in params[key]) {
+                    dataMap[key] = params[key].value;
+                } else {
+                    dataMap[key] = params[key];
+                }
+            }
+
+            const sensorData = {
+                lat: 0, lon: 0,
+                temp: dataMap.wendu || '--',
+                weather: '',
+                city: '未知',
+                baojing: dataMap.baojing === true || dataMap.baojing === 'true',
+                toudeng: dataMap.toudeng === true || dataMap.toudeng === 'true',
+                tools: [
+                    dataMap.banshou === true || dataMap.banshou === 'true',
+                    dataMap.neiliujiao === true || dataMap.neiliujiao === 'true',
+                    dataMap.cedianbi === true || dataMap.cedianbi === 'true',
+                    dataMap.chizi === true || dataMap.chizi === 'true',
+                    dataMap.luosidao1 === true || dataMap.luosidao1 === 'true',
+                    dataMap.luosidao10 === true || dataMap.luosidao10 === 'true',
+                    dataMap.jiaodai === true || dataMap.jiaodai === 'true',
+                    dataMap.chuizi === true || dataMap.chuizi === 'true'
+                ]
+            };
+
+            updateUI(sensorData);
+            document.getElementById('dataStatus').textContent = '已连接（MQTT）';
+        }
+
+        // ================================================================
+        // UI 更新
         // ================================================================
         function updateUI(data) {
             document.getElementById('temperature').textContent = data.temp ? data.temp + '°C' : '--°C';
@@ -400,8 +448,7 @@
         // 初始化
         // ================================================================
         window.onload = function() {
-            fetchData();
-            updateInterval = setInterval(fetchData, 3000);
+            connectMQTT();
         };
     </script>
 </body>
