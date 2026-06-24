@@ -1,16 +1,425 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>安全帽监控平台</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安全帽监控平台 - 中国移动物联网</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', 'Segoe UI', sans-serif; background: #eef2f7; color: #111827; min-height: 100vh; }
+        .page { max-width: 1200px; margin: 0 auto; padding: 24px 20px 40px; }
+        .header { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 18px; }
+        .brand { font-size: 34px; font-weight: 800; color: #111827; }
+        .subtitle { font-size: 14px; color: #475569; }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+        #mapContainer { width: 100%; height: 400px; border-radius: 16px; border: 2px solid #e2e8f0; background: #f8fafc; }
+        .map-wrapper { background: #ffffff; border-radius: 16px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+        .map-title { font-size: 16px; font-weight: 600; color: #1e293b; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .info-card { background: #ffffff; border-radius: 16px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.06); border: 1px solid #e2e8f0; }
+        .info-card .label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-card .value { font-size: 20px; font-weight: 700; color: #1e293b; margin-top: 4px; }
+        .info-card .value.green { color: #22c55e; }
+        .info-card .value.red { color: #ef4444; }
+        .info-card .value.yellow { color: #f59e0b; }
+
+        .status-circle { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; }
+        .status-circle.green { background: #22c55e; }
+        .status-circle.yellow { background: #f59e0b; }
+        .status-circle.red { background: #ef4444; }
+
+        .tool-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        .tool-tag { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .tool-tag.exist { background: #dcfce7; color: #166534; }
+        .tool-tag.missing { background: #fee2e2; color: #991b1b; }
+
+        #debugPanel { background:#fff; border-radius:12px; padding:10px 14px; margin-bottom:12px; border:1px solid #e6eef8; color:#334155; font-size:13px; }
+        #configPanel { background:#fff; border-radius:12px; padding:12px 14px; margin-bottom:12px; border:1px solid #e6eef8; }
+        .config-row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+        .config-item { display:flex; flex-direction:column; }
+        .config-item label { font-size:12px; color:#64748b; }
+        .config-item input { padding:4px 8px; border:1px solid #e2e8f0; border-radius:6px; font-size:12px; width:160px; }
+        .btn-apply { padding:4px 12px; border:none; border-radius:6px; background:#2563eb; color:#fff; font-size:12px; font-weight:600; height:28px; cursor:pointer; }
+        .btn-apply:hover { background:#1d4ed8; }
+        #dataStatus { font-weight:600; }
+
+        .control-panel { background: #fff; border-radius: 16px; padding: 16px; margin-top: 20px; box-shadow: 0 4px 20px rgba(0,0,0,.06); border: 1px solid #e2e8f0; }
+        .control-panel .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .control-panel .label { font-weight: 600; color: #1e293b; }
+        .btn { padding: 8px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn-blue { background: #2563eb; color: #fff; }
+        .btn-blue:hover { background: #1d4ed8; }
+        .btn-gray { background: #64748b; color: #fff; }
+        .btn-gray:hover { background: #475569; }
+        .btn-red { background: #ef4444; color: #fff; }
+        .btn-red:hover { background: #dc2626; }
+        .btn-green { background: #22c55e; color: #fff; }
+        .btn-green:hover { background: #16a34a; }
+        #controlResult { margin-top: 8px; font-size: 13px; color: #475569; min-height: 20px; }
+
+        .status-badge { display: inline-block; padding: 2px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .status-badge.online { background: #dcfce7; color: #166534; }
+        .status-badge.offline { background: #fee2e2; color: #991b1b; }
+        .footer { text-align: center; margin-top: 24px; font-size: 12px; color: #94a3b8; }
+    </style>
+    <!-- 高德地图 JS API -->
+    <script src="https://webapi.amap.com/maps?v=2.0&key=00557b66102c547262723d7b8ee2af2c"></script>
 </head>
 <body>
-    <script>
-        window.location.replace('web_dashboard.html');
-    </script>
-    <noscript>
-        <p>如果页面未自动跳转，请点击：<a href="web_dashboard.html">打开仪表盘</a></p>
-    </noscript>
+<div class="page">
+    <div class="header">
+        <div class="brand">⛑️ 安全帽监控平台</div>
+        <div class="subtitle">中国移动物联网 · 实时轨迹追踪 · 远程控制</div>
+    </div>
+
+    <!-- 配置面板 -->
+    <div id="configPanel">
+        <div class="config-row">
+            <div class="config-item">
+                <label>产品ID</label>
+                <input type="text" id="configProductId" value="U1eOLJ83ky" />
+            </div>
+            <div class="config-item">
+                <label>设备名称</label>
+                <input type="text" id="configDeviceName" value="MAOZI" />
+            </div>
+            <div class="config-item">
+                <label>API Key (access_key)</label>
+                <input type="password" id="configApiKey" value="cbOnk40RLVF7ldcXxZUJhXdR+c9HWeNnG83LGZWNrYU=" style="width:280px;" />
+            </div>
+            <button class="btn-apply" onclick="applyConfig()">🔄 应用配置</button>
+        </div>
+    </div>
+
+    <!-- 调试面板 -->
+    <div id="debugPanel">
+        <div>📡 状态：<span id="dataStatus">正在获取...</span></div>
+        <div id="lastPayload">最近数据：等待中...</div>
+        <div id="pointCount">📍 轨迹点：0</div>
+    </div>
+
+    <!-- 主区域 -->
+    <div class="main-grid">
+        <div class="map-wrapper">
+            <div class="map-title">
+                <span>📍 实时位置与轨迹</span>
+                <span id="locationTime" style="font-size:12px; font-weight:400; color:#94a3b8;">--</span>
+            </div>
+            <div id="mapContainer"></div>
+        </div>
+
+        <div>
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="label">当前状态</div>
+                    <div class="value" id="statusDisplay"><span class="status-circle green"></span>正常</div>
+                </div>
+                <div class="info-card">
+                    <div class="label">温度</div>
+                    <div class="value" id="tempDisplay">--°C</div>
+                </div>
+                <div class="info-card">
+                    <div class="label">头灯</div>
+                    <div class="value" id="headlightDisplay">关闭</div>
+                </div>
+                <div class="info-card">
+                    <div class="label">报警</div>
+                    <div class="value" id="alarmDisplay">无</div>
+                </div>
+            </div>
+            <div class="info-card" style="margin-top:12px;">
+                <div class="label">🛠️ 工具状态</div>
+                <div class="tool-list" id="toolList"></div>
+            </div>
+            <div class="info-card" style="margin-top:12px;">
+                <div class="label">📌 最后位置</div>
+                <div id="lastPosition" style="font-size:14px; color:#475569; margin-top:4px;">等待定位...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="control-panel">
+        <div class="row">
+            <span class="label">🎮 远程控制：</span>
+            <button class="btn btn-blue" onclick="controlHeadlight(true)">💡 开灯</button>
+            <button class="btn btn-gray" onclick="controlHeadlight(false)">🔅 关灯</button>
+            <button class="btn btn-red" onclick="resetAlarm()">🔄 复位报警</button>
+            <button class="btn btn-green" onclick="fetchData()">📡 刷新数据</button>
+        </div>
+        <div id="controlResult">💡 点击按钮即可远程控制设备</div>
+    </div>
+
+    <div class="footer">
+        中国移动物联网 · 数据每 5 秒自动刷新
+    </div>
+</div>
+
+<script>
+    // ================================================================
+    // 配置
+    // ================================================================
+    const TOOL_NAMES = ['扳手', '内六角扳手', '测电笔', '尺子', '螺丝刀1', '螺丝刀10', '胶带', '锤子'];
+    const HISTORY_LIMIT = 300;
+    const API_BASE = 'https://iot-api.heclouds.com';
+
+    let map = null;
+    let polyline = null;
+    let marker = null;
+    let path = [];
+    let updateInterval = null;
+
+    // ================================================================
+    // 配置管理
+    // ================================================================
+    function getConfig() {
+        return {
+            productId: document.getElementById('configProductId').value.trim(),
+            deviceName: document.getElementById('configDeviceName').value.trim(),
+            apiKey: document.getElementById('configApiKey').value.trim()
+        };
+    }
+
+    function applyConfig() {
+        clearInterval(updateInterval);
+        path = [];
+        updateMapWithPath();
+        document.getElementById('controlResult').textContent = '🔄 配置已更新，正在获取数据...';
+        fetchData();
+        updateInterval = setInterval(fetchData, 5000);
+    }
+
+    // ================================================================
+    // 地图初始化
+    // ================================================================
+    function initMap() {
+        map = new AMap.Map('mapContainer', {
+            zoom: 15,
+            center: [116.397428, 39.90923],
+            mapStyle: 'amap://styles/whitesmoke',
+            resizeEnable: true
+        });
+        AMap.plugin(['AMap.ToolBar'], function() {
+            map.addControl(new AMap.ToolBar({ position: 'RT' }));
+        });
+    }
+
+    // ================================================================
+    // 数据拉取（使用中国移动 API）
+    // ================================================================
+    async function fetchData() {
+        const cfg = getConfig();
+        const url = `${API_BASE}/thingmodel/query-device-property?product_id=${cfg.productId}&device_name=${cfg.deviceName}`;
+
+        try {
+            const response = await fetch(url, {
+                headers: { 'api-key': cfg.apiKey }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json();
+            console.log('API响应:', result);
+
+            if (result.code === 0 && result.data) {
+                const dataMap = result.data;
+
+                // 提取经纬度
+                const lat = parseFloat(dataMap.latitude) || 0;
+                const lon = parseFloat(dataMap.longitude) || 0;
+
+                // 更新轨迹
+                if (lat !== 0 && lon !== 0) {
+                    if (path.length === 0 ||
+                        Math.abs(path[path.length-1][0] - lon) > 0.00001 ||
+                        Math.abs(path[path.length-1][1] - lat) > 0.00001) {
+                        path.push([lon, lat]);
+                        if (path.length > HISTORY_LIMIT) path.shift();
+                        updateMapWithPath();
+                        document.getElementById('pointCount').textContent = `📍 轨迹点：${path.length}`;
+                        document.getElementById('lastPosition').textContent =
+                            `经度 ${lon.toFixed(6)}，纬度 ${lat.toFixed(6)}`;
+                        document.getElementById('locationTime').textContent = new Date().toLocaleTimeString();
+                    }
+                }
+
+                updateUI(dataMap);
+                document.getElementById('dataStatus').textContent = '✅ 已连接';
+                document.getElementById('lastPayload').textContent = '最近数据：' + JSON.stringify(dataMap);
+            } else {
+                document.getElementById('dataStatus').textContent = '❌ ' + (result.msg || '获取失败');
+            }
+        } catch (error) {
+            console.error('获取数据失败:', error);
+            document.getElementById('dataStatus').textContent = '❌ 获取失败，重试中...';
+        }
+    }
+
+    // ================================================================
+    // 地图更新
+    // ================================================================
+    function updateMapWithPath() {
+        if (!map) return;
+        if (polyline) { map.remove(polyline); polyline = null; }
+        if (marker) { map.remove(marker); marker = null; }
+        if (path.length === 0) return;
+
+        polyline = new AMap.Polyline({
+            path: path,
+            strokeColor: '#2563eb',
+            strokeWeight: 4,
+            strokeStyle: 'solid',
+            strokeOpacity: 0.8
+        });
+        polyline.setMap(map);
+
+        const lastPoint = path[path.length - 1];
+        marker = new AMap.Marker({
+            position: lastPoint,
+            icon: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png',
+            animation: 'AMAP_ANIMATION_DROP'
+        });
+        marker.setMap(map);
+        map.setFitView([polyline, marker], false, [80, 80, 80, 80]);
+    }
+
+    // ================================================================
+    // UI 更新
+    // ================================================================
+    function updateUI(dataMap) {
+        const baojing = dataMap.baojing === true || dataMap.baojing === 'true';
+        const toudeng = dataMap.toudeng === true || dataMap.toudeng === 'true';
+        const temp = dataMap.wendu || '--';
+
+        const statusDisplay = document.getElementById('statusDisplay');
+        if (baojing) {
+            statusDisplay.innerHTML = '<span class="status-circle red"></span>摔倒报警';
+            statusDisplay.className = 'value red';
+        } else {
+            statusDisplay.innerHTML = '<span class="status-circle green"></span>正常';
+            statusDisplay.className = 'value green';
+        }
+
+        document.getElementById('tempDisplay').textContent = temp + '°C';
+        document.getElementById('headlightDisplay').textContent = toudeng ? '🔆 已开启' : '🔅 已关闭';
+        document.getElementById('alarmDisplay').textContent = baojing ? '⚠️ 报警中' : '✅ 无';
+
+        // 工具状态
+        const toolList = document.getElementById('toolList');
+        const toolStatus = [
+            dataMap.banshou, dataMap.neiliujiao, dataMap.cedianbi,
+            dataMap.chizi, dataMap.luosidao1, dataMap.luosidao10,
+            dataMap.jiaodai, dataMap.chuizi
+        ];
+        toolList.innerHTML = '';
+        toolStatus.forEach((status, i) => {
+            const tag = document.createElement('span');
+            const exists = status === true || status === 'true';
+            tag.className = `tool-tag ${exists ? 'exist' : 'missing'}`;
+            tag.textContent = `${exists ? '✅' : '❌'} ${TOOL_NAMES[i]}`;
+            toolList.appendChild(tag);
+        });
+    }
+
+    // ================================================================
+    // 控制函数（使用 set-device-property API）
+    // ================================================================
+    async function controlHeadlight(on) {
+        const cfg = getConfig();
+        const url = `${API_BASE}/thingmodel/set-device-property`;
+        const payload = {
+            product_id: cfg.productId,
+            device_name: cfg.deviceName,
+            params: {
+                toudeng: on
+            }
+        };
+
+        document.getElementById('controlResult').textContent = '⏳ 正在发送指令...';
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-key': cfg.apiKey
+                },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            console.log('控制响应:', result);
+
+            if (result.code === 0) {
+                const deviceCode = result.data?.code;
+                if (deviceCode === 200) {
+                    document.getElementById('controlResult').textContent = `✅ 头灯已${on ? '开启' : '关闭'}（设备已执行）`;
+                } else {
+                    document.getElementById('controlResult').textContent = `⚠️ 指令已下发，设备返回：${result.data?.msg || '未知'}`;
+                }
+                // 刷新数据
+                setTimeout(fetchData, 1000);
+            } else {
+                document.getElementById('controlResult').textContent = `❌ 控制失败：${result.msg || '未知错误'}`;
+            }
+        } catch (e) {
+            document.getElementById('controlResult').textContent = '❌ 网络请求失败：' + e.message;
+        }
+    }
+
+    async function resetAlarm() {
+        const cfg = getConfig();
+        const url = `${API_BASE}/thingmodel/set-device-property`;
+        const payload = {
+            product_id: cfg.productId,
+            device_name: cfg.deviceName,
+            params: {
+                baojing: false
+            }
+        };
+
+        document.getElementById('controlResult').textContent = '⏳ 正在发送复位指令...';
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-key': cfg.apiKey
+                },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            console.log('复位响应:', result);
+
+            if (result.code === 0) {
+                const deviceCode = result.data?.code;
+                if (deviceCode === 200) {
+                    document.getElementById('controlResult').textContent = '✅ 报警已复位（设备已执行）';
+                } else {
+                    document.getElementById('controlResult').textContent = `⚠️ 指令已下发，设备返回：${result.data?.msg || '未知'}`;
+                }
+                setTimeout(fetchData, 1000);
+            } else {
+                document.getElementById('controlResult').textContent = `❌ 复位失败：${result.msg || '未知错误'}`;
+            }
+        } catch (e) {
+            document.getElementById('controlResult').textContent = '❌ 网络请求失败：' + e.message;
+        }
+    }
+
+    // ================================================================
+    // 初始化
+    // ================================================================
+    window.onload = function() {
+        initMap();
+        fetchData();
+        updateInterval = setInterval(fetchData, 5000);
+        document.getElementById('controlResult').textContent = '💡 点击按钮即可远程控制设备';
+    };
+</script>
 </body>
 </html>
